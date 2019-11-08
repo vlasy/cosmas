@@ -54,6 +54,7 @@
     "@types/on-finished": "^2.3.1",
     "@types/on-headers": "^1.0.0",
     "coveralls": "^3.0.2",
+    "dx-scanner": "^1.17.2",
     "express": "^4.16.3",
     "husky": "^2.7.0",
     "jest": "^24.1.0",
