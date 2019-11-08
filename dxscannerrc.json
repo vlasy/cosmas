@@ -1,0 +1,5 @@
+{
+    "practices": {
+        "LanguageIndependent.LockfileIsPresent": "hint"
+    }
+}
