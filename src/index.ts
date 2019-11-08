@@ -2,30 +2,15 @@ import { ErrorRequestHandler } from 'express';
 import isObject = require('lodash.isobject');
 import isString = require('lodash.isstring');
 import * as pino from 'pino';
-import { BaseLogger as PinoLogger, LevelWithSilent as Level } from 'pino';
+import * as pinoms from 'pino-multi-stream';
 import { Writable } from 'stream';
 import { AckeeLoggerExpressMiddleware, expressErrorMiddleware, expressMiddleware } from './express';
-import { levels } from './levels';
+import { AckeeLoggerOptions } from './interfaces';
 import * as serializers from './serializers';
-import { StackDriverFormatStream } from './stackdriver';
-import { AckeeLoggerStream, decorateStreams, DefaultTransformStream } from './streams';
+import { initLoggerStreams } from './streams';
 
-import * as pinoms from 'pino-multi-stream';
-
-interface LoggerOptions extends pino.LoggerOptions {
-    streams?: Array<{ stream: NodeJS.WritableStream; level?: pino.Level }>;
-}
-
-export interface AckeeLoggerOptions {
-    disableFields?: string[];
-    enableFields?: string[];
-    defaultLevel?: Level;
-    disableStackdriverFormat?: boolean;
-    streams?: AckeeLoggerStream[];
-    ignoredHttpMethods?: string[];
-    config?: LoggerOptions;
-    pretty?: boolean;
-}
+export type PinoLogger = pino.BaseLogger;
+export type Level = pino.LevelWithSilent;
 
 export interface AckeeLogger extends PinoLogger {
     warning: pino.LogFn;
@@ -33,28 +18,40 @@ export interface AckeeLogger extends PinoLogger {
     express: AckeeLoggerExpressMiddleware;
     expressError: ErrorRequestHandler;
     stream: Writable;
+    (childName: string): any;
 }
 
 export interface AckeeLoggerFactory extends AckeeLogger {
-    (data: string | AckeeLoggerOptions): AckeeLogger;
+    (data?: string | AckeeLoggerOptions): AckeeLogger;
 }
 
+const makeCallable = <T extends object, F extends (...args: any[]) => any>(obj: T, fun: F): T & F =>
+    new Proxy(fun as any, {
+        get: (_target, key) => (obj as any)[key],
+    });
+
+const objEmpty = (obj: object) => Object.keys(obj).length === 0;
+
 // This is a custom slightly edited version of pino-multistream's write method, which adds support for maximum log level
-// The original version was pino-multistream 3.1.2 (commit 71d98ae) - https://github.com/pinojs/pino-multi-stream/blob/71d98ae191e02c56e39e849d2c30d59c8c6db1b9/multistream.js#L43
+// The original version was pino-multistream 4.2.0 (commit bf7941f) - https://github.com/pinojs/pino-multi-stream/blob/bf7941f77661b6c14dd40840ff4a4db6897f08eb/multistream.js#L43
 const maxLevelWrite: pino.WriteFn = function(this: any, data: object): void {
     let stream;
-    const needsMetadata = Symbol.for('needsMetadata');
+    const metadata = Symbol.for('pino.metadata');
     const level = this.lastLevel;
     const streams = this.streams;
     for (const dest of streams) {
         stream = dest.stream;
+        // tslint:disable-next-line:early-exit
         if (dest.level <= level) {
             if (!dest.maxLevel || (dest.maxLevel && level < dest.maxLevel)) {
-                if (stream[needsMetadata]) {
+                if (stream[metadata]) {
+                    // tslint:disable-next-line:no-this-assignment
+                    const { lastTime, lastMsg, lastObj, lastLogger } = this;
                     stream.lastLevel = level;
-                    stream.lastMsg = this.lastMsg;
-                    stream.lastObj = this.lastObj;
-                    stream.lastLogger = this.lastLogger;
+                    stream.lastTime = lastTime;
+                    stream.lastMsg = lastMsg;
+                    stream.lastObj = lastObj;
+                    stream.lastLogger = lastLogger;
                 }
                 stream.write(data);
             }
@@ -64,59 +61,24 @@ const maxLevelWrite: pino.WriteFn = function(this: any, data: object): void {
     }
 };
 
-const defaultLogger = (options: AckeeLoggerOptions = {}): AckeeLogger => {
-    const pretty = pino.pretty();
-    pretty.pipe(process.stdout);
-    const prettyErr = pino.pretty();
-    prettyErr.pipe(process.stderr);
+const defaultLogger = (options: AckeeLoggerOptions & { loggerName?: string } = {}): AckeeLogger => {
     serializers.disablePaths(options.disableFields);
     serializers.enablePaths(options.enableFields);
 
     const isTesting = process.env.NODE_ENV === 'test';
-    let defaultLevel: Level = 'debug';
+    const defaultLevel: Level = options.defaultLevel || (isTesting ? 'silent' : 'debug');
+    const messageKey = options.pretty ? 'msg' : 'message'; // "message" is the best option for Google Stackdriver,
+    const streams = initLoggerStreams(defaultLevel, Object.assign({}, options, { messageKey }));
 
-    if (isTesting) {
-        defaultLevel = 'silent';
-    }
-
-    if (options.defaultLevel) {
-        defaultLevel = options.defaultLevel;
-    }
-
-    let streams: AckeeLoggerStream[];
-    let defaultMessageKey = 'message'; // best option for Google Stackdriver
-    if (options.streams) {
-        streams = options.streams;
-    } else if (options.pretty) {
-        streams = [
-            { level: defaultLevel, maxLevel: levels.warn, stream: pretty },
-            { level: 'warn', stream: prettyErr },
-        ];
-        defaultMessageKey = 'msg'; // default pino - best option for pretty print
-    } else {
-        streams = [
-            { level: defaultLevel, maxLevel: levels.warn, stream: process.stdout },
-            { level: 'warn', stream: process.stderr },
-        ];
-    }
-    if (!options.disableStackdriverFormat) {
-        streams = decorateStreams(streams, StackDriverFormatStream);
-    }
-
-    streams = decorateStreams(streams, DefaultTransformStream);
-
-    if (!options.ignoredHttpMethods) {
-        options.ignoredHttpMethods = ['OPTIONS'];
-    }
+    options.ignoredHttpMethods = options.ignoredHttpMethods || ['OPTIONS'];
 
     const logger = (pino(
         // no deep-merging needed, so assign is OK
         Object.assign(
-            {},
             {
+                messageKey,
                 base: {},
                 level: defaultLevel,
-                messageKey: defaultMessageKey,
                 serializers: serializers.serializers,
                 timestamp: false,
             },
@@ -124,48 +86,51 @@ const defaultLogger = (options: AckeeLoggerOptions = {}): AckeeLogger => {
         ),
         (pinoms as any).multistream(streams)
     ) as PinoLogger) as AckeeLogger;
-    logger.warning = logger.warn;
-    logger.options = options;
 
     // Add maxLevel support to pino-multi-stream
     // This could be replaced with custom pass-through stream being passed to multistream, which would filter the messages
-    const streamMaxLevelWrite = maxLevelWrite.bind(logger.stream);
-    logger.stream.write = (chunk: any) => {
+    const loggerStream = (logger as any)[(pino as any).symbols.streamSym] as any;
+    const streamMaxLevelWrite = maxLevelWrite.bind(loggerStream);
+    loggerStream.write = (chunk: any) => {
         streamMaxLevelWrite(chunk);
         return true;
     };
-    logger.express = expressMiddleware.bind(logger);
-    logger.expressError = expressErrorMiddleware as any;
-
-    return logger;
+    return Object.assign(logger, {
+        options,
+        express: expressMiddleware.bind(logger),
+        expressError: expressErrorMiddleware as any,
+        warning: logger.warn,
+    });
 };
 
-let rootLogger: AckeeLogger;
-
-const loggerFactory = (data: string | AckeeLoggerOptions = {}): AckeeLogger => {
-    let moduleName: string | undefined;
+const parseLoggerData = (data: string | AckeeLoggerOptions = {}) => {
+    let loggerName: string | undefined;
     let options: AckeeLoggerOptions = {};
     if (data) {
         if (isString(data)) {
-            moduleName = data as string;
+            loggerName = data;
         } else if (isObject(data)) {
-            options = data as AckeeLoggerOptions;
+            options = data;
         } else {
             throw new TypeError(`Invalid argument of type ${typeof data}`);
         }
     }
-
-    if (!rootLogger) {
-        rootLogger = defaultLogger(options);
-    }
-    if (!moduleName) {
-        return rootLogger;
-    }
-    return (rootLogger.child({ name: moduleName }) as any) as AckeeLogger;
+    return { loggerName, options };
 };
 
-const factoryProxy = new Proxy(loggerFactory, {
-    get: (target, key) => (target() as any)[key],
-}) as AckeeLoggerFactory;
+const loggerFactory = (data: string | AckeeLoggerOptions = {}, loggerOptions: AckeeLoggerOptions = {}): AckeeLogger => {
+    const { loggerName, options } = parseLoggerData(data);
+    loggerOptions = objEmpty(options) ? loggerOptions : options;
+    const logger = defaultLogger(Object.assign({ loggerName }, loggerOptions));
+
+    const loggerProxy = makeCallable(logger, (childName: string) => {
+        const childLoggerName = [loggerName, childName].join('');
+        const childOptions = loggerOptions;
+        return loggerFactory(childLoggerName, childOptions);
+    });
+    return loggerProxy;
+};
+
+const factoryProxy = makeCallable(loggerFactory(), loggerFactory);
 
 export default factoryProxy;

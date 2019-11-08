@@ -1,11 +1,25 @@
 ## [Unpublished]
 
+## [1.1.0] - 2019-08-05
+
 ### Fixed
 - lint issue due to changes in tslint 5.12.0
 - stream write function type
+- pretty streams created only when needed
+- logger name in pretty loggers
+- empty user-agent logged no more
+- set cosmas's default level for custom streams missing level spec
+
 
 ### Added
 - coveralls integration
+- automatic logger name in non-pretty loggers
+- `options.skip` settings for custom log filtering in Express
+  
+### Changed
+- refactoring of express handlers
+- `severity` and `pkgVersion` fields hidden in pretty output
+- log levels for express middleware
 
 ## [1.0.3] - 2018-11-08
 

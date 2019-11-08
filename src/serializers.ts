@@ -54,51 +54,32 @@ const serializers: Dictionary<SerializerFn> = {
     },
 };
 
-const disablePaths = (paths: string[] | undefined) => {
-    if (!paths || paths.length <= 0) {
-        return;
-    }
-    forEach(serializers, (value, key) => {
-        const matcher = new RegExp(`^${key}.(.*)`);
-        const affectedFields: string[] = [];
-        paths.forEach(field => {
-            const res = field.match(matcher);
-            if (res !== null) {
-                affectedFields.push(res[1]);
-            }
-        });
+const sliceByPrefix = (prefix: string, paths?: string[]) =>
+    (paths || []).filter(field => field.startsWith(prefix)).map(field => field.slice(prefix.length));
 
-        if (affectedFields.length > 0) {
-            const newSerializer: SerializerFn = (obj: Dictionary<any>) => {
-                return omit(value(obj), affectedFields);
-            };
-            serializers[key] = newSerializer;
-        }
+const disablePaths = (paths?: string[]) => {
+    forEach(serializers, (value, key) => {
+        const affectedFields = sliceByPrefix(`${key}.`, paths);
+
+        if (affectedFields.length === 0) return;
+        const newSerializer: SerializerFn = (obj: Dictionary<any>) => {
+            return omit(value(obj), affectedFields);
+        };
+        serializers[key] = newSerializer;
     });
 };
 
-const enablePaths = (paths: string[] | undefined) => {
-    if (!paths || paths.length <= 0) {
-        return;
-    }
+const enablePaths = (paths?: string[]) => {
     forEach(serializers, (value, key) => {
-        const matcher = new RegExp(`^${key}.(.*)`);
-        const affectedFields: string[] = [];
-        paths.forEach(field => {
-            const res = field.match(matcher);
-            if (res !== null) {
-                affectedFields.push(res[1]);
-            }
-        });
+        const affectedFields = sliceByPrefix(`${key}.`, paths);
 
-        if (affectedFields.length > 0) {
-            const newSerializer: SerializerFn = (obj: Dictionary<any>) => {
-                const newFields = pick(obj, affectedFields);
-                const originalResult = value(obj);
-                return Object.assign({}, originalResult, newFields);
-            };
-            serializers[key] = newSerializer;
-        }
+        if (affectedFields.length === 0) return;
+        const newSerializer: SerializerFn = (obj: Dictionary<any>) => {
+            const newFields = pick(obj, affectedFields);
+            const originalResult = value(obj);
+            return Object.assign({}, originalResult, newFields);
+        };
+        serializers[key] = newSerializer;
     });
 };
 

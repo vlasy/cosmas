@@ -1,17 +1,25 @@
 # Cosmas
 
+<div align="center">
+
+![Cosmas](https://i.imgur.com/EFe3wOa.png)
+
+[![Build Status](https://img.shields.io/travis/com/AckeeCZ/cosmas/master.svg?style=flat-square)](https://travis-ci.com/AckeeCZ/cosmas)
 [![Npm](https://img.shields.io/npm/v/cosmas.svg?style=flat-square)](https://www.npmjs.com/package/cosmas)
 [![License](https://img.shields.io/github/license/AckeeCZ/cosmas.svg?style=flat-square)](https://github.com/AckeeCZ/cosmas/blob/master/LICENSE)
+[![Coverage Status](https://img.shields.io/coveralls/github/AckeeCZ/cosmas.svg?style=flat-square)](https://coveralls.io/github/AckeeCZ/cosmas?branch=master)
+[![Known Vulnerabilities](https://snyk.io/test/github/AckeeCZ/cosmas/badge.svg?targetFile=package.json)](https://snyk.io/test/github/AckeeCZ/cosmas?targetFile=package.json)
 [![Dependencies](https://img.shields.io/david/AckeeCZ/cosmas.svg?style=flat-square)](https://david-dm.org/AckeeCZ/cosmas)	
-[![Dev dependencies](https://img.shields.io/david/dev/AckeeCZ/cosmas.svg?style=flat-square)](https://david-dm.org/AckeeCZ/cosmas)	
+[![Dev dependencies](https://img.shields.io/david/dev/AckeeCZ/cosmas.svg?style=flat-square)](https://david-dm.org/AckeeCZ/cosmas)
+[![Maintainability](https://img.shields.io/codeclimate/maintainability/AckeeCZ/cosmas.svg?style=flat-square)](https://codeclimate.com/github/AckeeCZ/cosmas)
 [![Downloads](https://img.shields.io/npm/dw/cosmas.svg?style=flat-square)](https://www.npmjs.com/package/cosmas)
 [![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?style=flat-square)](https://github.com/prettier/prettier)
 
 Simple pino-based logger for all your writing needs
 
-## How to use
+</div>
 
-First step is to create a root logger. Its configuration can be specified on creation and it will be used for all other loggers created.
+## How to use
 
 ### Import the logger factory
 
@@ -25,7 +33,7 @@ or with import
 import loggerFactory from 'cosmas';
 ```
 
-### Create root logger with default configuration
+### Create logger with default configuration
 
 ```js
 const logger = loggerFactory; // factory itself is a logger
@@ -33,7 +41,7 @@ const logger = loggerFactory; // factory itself is a logger
 const logger = loggerFactory();
 ```
 
-### Create root logger with custom configuration
+### Create logger with custom configuration
 
 ```js
 const logger = loggerFactory({
@@ -42,17 +50,17 @@ const logger = loggerFactory({
 });
 ```
 
-Note: If you want to specify custom configuration it must be done **in the first require** of `cosmas`. Otherwise, default configuration will be used.
-
 See **Options** for a list of possible options.
 
-After you create a root logger, you may use it or you can create a child logger.
+### Child loggers
+Every logger can be used to create a *child* logger. Child logger inherits all configuration of its *parent* and cannot override them.
+
+Child logger can specify its own *name* which is then concatenated with parent's *name*. Therefore the child logger name is `parentNamechildName`.
 
 ```js
-const databaseLogger = loggerFactory('database')
+const parentLogger = loggerFactory('database', { pretty: false });
+const childLogger = parentLogger('.updates');
 ```
-
-The only difference between root logger and a child logger is that the child logger will print its name in each log message.
 
 ## Logger usage
 
@@ -82,7 +90,10 @@ All loglevels from warning up (inclusive) - warning, error, fatal - are logged t
 Usage:
 ```js
 const express = require('express');
-const logger = require('cosmas');
+
+const logger = require('cosmas').default;
+// or
+import logger from 'cosmas';
 
 const app = express();
 // or
@@ -103,11 +114,26 @@ app.use(logger.expressError)
 
 All those log messages will contain request and possibly response, error, time from request to response, status code and `user-agent`, `x-deviceid` and `authorization` request headers.
 
+### Request skipping
+You might want to omit some requests from logging completely. Right now, there are two ways to do it and you can even use both at once.
+1) Use `options.ignoredHttpMethods` to define an array of HTTP methods you want to omit. By default all `OPTIONS` requests are ommited. See [options](#options) for details
+2) Use `options.skip` method to define custom rules for requests skipping. Set it to a function which accepts an Express's `Request` and returns `boolean`. If the return value is `true`, request (and corresponding response) will not be logged. You might want to use `matchPath` helper to ignore requests based on the [`req.originalUrl` value](https://expressjs.com/en/4x/api.html#req.originalUrl)
+
+```js
+const { matchPath } = require('cosmas/utils');
+const logger = require('cosmas').default({
+    skip: matchPath(/heal.h/),
+});
+```
+
 ## Environment-specific behavior
-`cosmas` is meant to be used throughout different environments (development, testing, production) and some of its configuration is setup differently based on the environment it runs in.
+`cosmas` is meant to be used throughout different environments (development, testing, production) and some of its configuration is setup differently based on the environment it runs in. By default, `severity` (contains current log level) and `pkgVersion` (contains current version of `cosmas`) fields are added to logged object.
 
 ### Testing
 If the `NODE_ENV` environment variable is set to `test`, all logs are turned off (minimal loglevel is set to `silent` which effectively turns logging off).
+
+### Pretty print
+If you set `pretty` option to `true`, you enable pretty print mode intended for development use. `pkgVersion` and `severity` are ommited from output.
 
 ### Otherwise
 [Standard pino log](https://github.com/pinojs/pino#usage) is used and it's optimized for Google Stackdriver logging. That means that default log level is `debug`, pretty print is turned off and [pino's `messageKey` option](https://github.com/pinojs/pino/blob/master/docs/API.md#pinooptions-stream) is set to `message`.
@@ -122,6 +148,7 @@ Options override both default logger configuration and environment-specific conf
 - `streams` - list of stream objects, which will be passed directly to [pino-multistream's multistream function](https://github.com/pinojs/pino-multi-stream#pinomsmultistreamstreams) instead of default `cosmas` stream
 - `pretty` - if set to `true`, logger will use [pino pretty human-readable logs](https://github.com/pinojs/pino/blob/master/docs/API.md#pretty). This option can be overriden by `streams`
 - `disableStackdriverFormat` - if set to `false`, logger will add `severity` field to all log objects, so that log levels in Google Stackdriver work as expected. Defaults to `false`
+- `skip` - Function to be used in express middlewares for filtering request logs. If the function returns `true` for a given request, no message will be logged. No default value.
 - `config` - object, which will be passed to underlying logger object. Right now, underlying logger is [pino](https://github.com/pinojs/pino), so for available options see [pino API docs](https://github.com/pinojs/pino/blob/master/docs/API.md#pinooptions-stream)
 
 ## Default serializers
@@ -130,7 +157,7 @@ Options override both default logger configuration and environment-specific conf
 - `error` - logs `message`, `code`, `stack` and `data` fields
 - `processEnv` - logs `NODE_PATH` and `NODE_ENV`
 - `req` - logs `body`, `query`, `url`, `method` and omits `password` and `passwordCheck` from `body` and `query`
-- `res` - logs `out` and `time`
+- `res` - logs `out`, `time`, `headers.x-deviceid`, `headers.authorization` and `headers.user-agent`
 
 
 ## Tips
