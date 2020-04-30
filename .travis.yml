@@ -8,6 +8,4 @@ script:
 - npm run lint
 - npm run build
 - npm run test
-- npm run test:coverage
-- npm run test:coveralls
-- npm danger ci
+- npm run danger:ci
