@@ -1,5 +1,18 @@
 ## [Unpublished]
 
+### Fixed
+- child logger type
+
+### Added
+- parent logger name inheritance
+- logging to sentry (option `sentry` and `sentryLevel`)
+- log time
+
+### Changed
+- `pino.pretty` replaced with `util.inspect`
+- rename interfaces
+- removed user agent and response time from express middleware logs
+
 ## [1.1.0] - 2019-08-05
 
 ### Fixed

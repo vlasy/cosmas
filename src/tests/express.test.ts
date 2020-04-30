@@ -3,23 +3,13 @@ import 'jest-extended';
 import { Writable } from 'stream';
 import * as supertest from 'supertest';
 import { levels } from '../levels';
+import { testWriteStream } from './utils';
 
 let loggerFactory;
 
 beforeEach(() => {
     jest.resetModules();
-    loggerFactory = require('..').default;
-});
-
-const testWriteStream = (resolve, assert) => ({
-    stream: new Writable({
-        write: (chunk, encoding, next) => {
-            const json = JSON.parse(chunk);
-            assert(json);
-            next();
-            resolve();
-        },
-    }),
+    loggerFactory = require('../index').default;
 });
 
 test('express binds', () => {
@@ -135,7 +125,7 @@ test('route can be ignored using regexp helper', () => {
     });
 });
 
-test('user-agent is logged', () => {
+test('user-agent is not logged', () => {
     const loggerWrites = jest.fn();
     const logger = loggerFactory({
         streams: [
@@ -143,7 +133,7 @@ test('user-agent is logged', () => {
                 stream: new Writable({
                     write: (chunk, encoding, next) => {
                         const json = JSON.parse(chunk);
-                        expect(json.message).toMatch('dummy agent');
+                        expect(json.message).not.toMatch('dummy agent');
                         loggerWrites();
                         next();
                     },
@@ -206,7 +196,7 @@ test('response 5xx is logged at error level', () => {
                 }),
             },
         ],
-        skip: req => !req.statusCode, // do not log request - log only response
+        skip: (_req, res) => !res, // do not log request - log only response
     });
 
     const app = express();

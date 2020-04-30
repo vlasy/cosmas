@@ -1,19 +1,14 @@
 import { ErrorRequestHandler, Request, RequestHandler, Response } from 'express';
 import * as onFinished from 'on-finished';
 import onHeaders = require('on-headers');
-import { AckeeLogger } from '.';
+import { Cosmas } from './index';
 
 const errorSymbol = Symbol.for('error');
 
 type AckeeRequest = Request & { _startAt?: [number, number]; ackId?: string };
 type AckeeResponse = Response & { _startAt?: [number, number]; time?: string; out?: object; [errorSymbol]?: any };
 
-export type AckeeLoggerExpressMiddleware = (
-    this: AckeeLogger,
-    req: AckeeRequest,
-    response: AckeeResponse,
-    next: any
-) => void;
+export type CosmasExpressMiddleware = (this: Cosmas, req: AckeeRequest, response: AckeeResponse, next: any) => void;
 
 const expressOnHeaders = (req: AckeeRequest, res: AckeeResponse) => () => {
     res._startAt = process.hrtime();
@@ -23,14 +18,22 @@ const expressOnHeaders = (req: AckeeRequest, res: AckeeResponse) => () => {
     res.time = ms.toFixed(3);
 };
 
-const expressOnFinished = (logger: AckeeLogger, req: AckeeRequest) => (_err: Error | null, res: AckeeResponse) => {
+const shouldSkipLogging = (logger: Cosmas, req: AckeeRequest, res?: AckeeResponse) =>
+    (logger.options.skip && logger.options.skip(req, res)) ||
+    (logger.options.ignoredHttpMethods && logger.options.ignoredHttpMethods.includes(req.method));
+
+const expressOnFinished = (logger: Cosmas, req: AckeeRequest) => (_err: Error | null, res: AckeeResponse) => {
+    if (shouldSkipLogging(logger, req, res)) {
+        return;
+    }
     const error = res[errorSymbol];
     const userAgent = req.headers['user-agent'];
-    const reqOut = `${res.statusCode} ${req.method} ${req.originalUrl} ${res.time} ms ${userAgent ? userAgent : ''}`;
+    const reqOut = `${res.statusCode} ${req.method} ${req.originalUrl}`;
     const standardOutput = {
         data: {
             req,
             res,
+            userAgent,
             ackId: req.ackId,
         },
         message: `${reqOut} - Standard output`,
@@ -41,26 +44,20 @@ const expressOnFinished = (logger: AckeeLogger, req: AckeeRequest) => (_err: Err
     };
     const serverError = res.statusCode >= 500;
 
-    const logFunction = error || serverError ? logger.error : res.out ? logger.info : logger.trace;
+    const logFunction = error || serverError ? logger.error : res.out ? logger.info : logger.debug;
     const output = error ? errorOutput : standardOutput;
 
     logFunction.call(logger, output.data, output.message);
 };
 
 const expressMiddleware: RequestHandler = function(
-    this: AckeeLogger,
+    this: Cosmas,
     req: AckeeRequest,
     response: AckeeResponse,
     next: any
 ) {
-    const userAgent = req.headers['user-agent'];
-    const reqIn = `--- ${req.method} ${req.originalUrl} ${userAgent ? userAgent : ''}`;
-    if (this.options.ignoredHttpMethods && this.options.ignoredHttpMethods.includes(req.method)) {
-        // entire method skipped - left here for BC
-        return next();
-    }
-    if (!this.options.skip || !this.options.skip(req)) {
-        // if request not skipped
+    const reqIn = `--- ${req.method} ${req.originalUrl}`;
+    if (!shouldSkipLogging(this, req)) {
         this.debug({ req, ackId: req.ackId }, `${reqIn} - Request accepted`);
     }
     req._startAt = process.hrtime();

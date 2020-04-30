@@ -4,26 +4,31 @@ import isString = require('lodash.isstring');
 import * as pino from 'pino';
 import * as pinoms from 'pino-multi-stream';
 import { Writable } from 'stream';
-import { AckeeLoggerExpressMiddleware, expressErrorMiddleware, expressMiddleware } from './express';
-import { AckeeLoggerOptions } from './interfaces';
+import { CosmasExpressMiddleware, expressErrorMiddleware, expressMiddleware } from './express';
+import { CosmasOptions } from './interfaces';
+import { levels } from './levels';
 import * as serializers from './serializers';
 import { initLoggerStreams } from './streams';
 
 export type PinoLogger = pino.BaseLogger;
 export type Level = pino.LevelWithSilent;
 
-export interface AckeeLogger extends PinoLogger {
+export interface Cosmas extends PinoLogger {
     warning: pino.LogFn;
-    options: AckeeLoggerOptions;
-    express: AckeeLoggerExpressMiddleware;
+    options: CosmasOptions;
+    express: CosmasExpressMiddleware;
     expressError: ErrorRequestHandler;
     stream: Writable;
-    (childName: string): any;
+    (childName: string): Cosmas;
 }
 
-export interface AckeeLoggerFactory extends AckeeLogger {
-    (data?: string | AckeeLoggerOptions): AckeeLogger;
+export interface CosmasFactory extends Cosmas {
+    (data?: string | CosmasOptions): Cosmas;
 }
+
+// cannot use Symbols, because they aren't JSON.stringifyable
+export const loggerNameKey = 'cosmas.loggerName';
+export const pkgVersionKey = 'cosmas.pkgVersion';
 
 const makeCallable = <T extends object, F extends (...args: any[]) => any>(obj: T, fun: F): T & F =>
     new Proxy(fun as any, {
@@ -61,13 +66,20 @@ const maxLevelWrite: pino.WriteFn = function(this: any, data: object): void {
     }
 };
 
-const defaultLogger = (options: AckeeLoggerOptions & { loggerName?: string } = {}): AckeeLogger => {
+const defaultLogger = (options: CosmasOptions & { loggerName?: string } = {}): Cosmas => {
     serializers.disablePaths(options.disableFields);
     serializers.enablePaths(options.enableFields);
 
+    if (options.sentry) {
+        const sentry = require('@sentry/node');
+        if (typeof options.sentry === 'string') {
+            sentry.init({ dsn: options.sentry });
+        }
+    }
+
     const isTesting = process.env.NODE_ENV === 'test';
     const defaultLevel: Level = options.defaultLevel || (isTesting ? 'silent' : 'debug');
-    const messageKey = options.pretty ? 'msg' : 'message'; // "message" is the best option for Google Stackdriver,
+    const messageKey = 'message'; // best option for Google Stackdriver,
     const streams = initLoggerStreams(defaultLevel, Object.assign({}, options, { messageKey }));
 
     options.ignoredHttpMethods = options.ignoredHttpMethods || ['OPTIONS'];
@@ -80,12 +92,15 @@ const defaultLogger = (options: AckeeLoggerOptions & { loggerName?: string } = {
                 base: {},
                 level: defaultLevel,
                 serializers: serializers.serializers,
-                timestamp: false,
+                timestamp: pino.stdTimeFunctions.isoTime,
+                customLevels: {
+                    warning: levels.warn,
+                },
             },
             options.config
         ),
         (pinoms as any).multistream(streams)
-    ) as PinoLogger) as AckeeLogger;
+    ) as PinoLogger) as Cosmas;
 
     // Add maxLevel support to pino-multi-stream
     // This could be replaced with custom pass-through stream being passed to multistream, which would filter the messages
@@ -99,13 +114,12 @@ const defaultLogger = (options: AckeeLoggerOptions & { loggerName?: string } = {
         options,
         express: expressMiddleware.bind(logger),
         expressError: expressErrorMiddleware as any,
-        warning: logger.warn,
     });
 };
 
-const parseLoggerData = (data: string | AckeeLoggerOptions = {}) => {
+const parseLoggerData = (data: string | CosmasOptions = {}) => {
     let loggerName: string | undefined;
-    let options: AckeeLoggerOptions = {};
+    let options: CosmasOptions = {};
     if (data) {
         if (isString(data)) {
             loggerName = data;
@@ -118,7 +132,7 @@ const parseLoggerData = (data: string | AckeeLoggerOptions = {}) => {
     return { loggerName, options };
 };
 
-const loggerFactory = (data: string | AckeeLoggerOptions = {}, loggerOptions: AckeeLoggerOptions = {}): AckeeLogger => {
+const loggerFactory = (data: string | CosmasOptions = {}, loggerOptions: CosmasOptions = {}): Cosmas => {
     const { loggerName, options } = parseLoggerData(data);
     loggerOptions = objEmpty(options) ? loggerOptions : options;
     const logger = defaultLogger(Object.assign({ loggerName }, loggerOptions));
