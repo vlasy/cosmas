@@ -24,4 +24,4 @@ jobs:
 
       # Runs a single command using the runners shell
       - name: DX Scanner Action
-        uses: vlasy/dx-scanner@9b9f82826c0bb430ff6a9e56f10937e219ff111f
+        uses: vlasy/dx-scanner@9b9f82826c0bb430ff6a9e56f10937e219ff111
