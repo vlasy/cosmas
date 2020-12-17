@@ -26,4 +26,4 @@ jobs:
       - name: DX Scanner Action
         uses: vlasy/dx-scanner@b5ed7a48e2369c89f597ece4a03d497e5d9410c7
         with:
-            args: $GITHUB_WORKSPACE
+            args: /github/workspace
