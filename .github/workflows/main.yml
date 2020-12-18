@@ -24,4 +24,6 @@ jobs:
 
       # Runs a single command using the runners shell
       - name: DX Scanner Action
-        uses: vlasy/dx-scanner@ab46ccd550642f9773d75b9ea0935505df947925
+        uses: vlasy/dx-scanner@e10c768ee89e9d90a571954349f5e71282999af6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
