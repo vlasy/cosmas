@@ -14,7 +14,8 @@
     "lint": "tslint -p . --force --format codeFrame",
     "pretty": "prettier --parser typescript --write 'src/*.ts'",
     "prepublishOnly": "npm run build",
-    "clean": "rm -rf ./node_modules && npm i && npm t"
+    "clean": "rm -rf ./node_modules && npm i && npm t",
+    "danger:ci": "danger ci"
   },
   "author": "Michal Vlasák <michal.vlasak@ackee.cz>",
   "contributors": [
@@ -41,7 +42,8 @@
     "on-headers": "^1.0.1",
     "pick-deep": "^1.0.0",
     "pino": "^6.2.0",
-    "pino-multi-stream": "^4.2.0"
+    "pino-multi-stream": "^4.2.0",
+    "ramda": "^0.27.0"
   },
   "peerDependencies": {
     "@sentry/node": "^5.9.0"
